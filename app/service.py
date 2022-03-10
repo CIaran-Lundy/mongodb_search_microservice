@@ -4,12 +4,12 @@ from typing import Dict, Optional
 import requests
 import sys
 import pymongo
-
+import bson
 
 MONGO_HOST = "REMOTE_IP_ADDRESS"
 MONGO_DB = "sequencemetadata"
-MONGO_USER = "root"
-MONGO_PASS = "WGEQPbrbix"
+MONGO_USER = "youseq"
+MONGO_PASS = "Orange01"
 
 
 class Input(BaseModel):
@@ -41,7 +41,7 @@ class Service:
             print(input.query)
             return list(input.query.keys())[0], list(input.query.values())
 
-        client = pymongo.MongoClient('mongodb://mongodb-mongodb-sharded/',
+        client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
                                      username=MONGO_USER,
                                      password=MONGO_PASS,
                                      authSource='admin',
@@ -50,14 +50,23 @@ class Service:
         col = db.accessions
 
         print(input.name)
-
+        self.SPP = False
+        if 'SPP' in input.name:
+            input.name = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
+            print(input.name)
+            self.SPP = True
         result = col.find_one({'name': input.name})
         print(result)
         if result is None:
+            print("no results found")
             return None
+        print(result)
         self.family_taxid = result['family_taxid']
         self.genus_taxid = result['genus_taxid']
         taxid = result['taxid']
+        
+        if self.SPP:
+            taxid = self.genus_taxid
 
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
@@ -83,7 +92,7 @@ class Service:
 
         ##Create a MongoDB client
 
-        client = pymongo.MongoClient('mongodb://mongodb-mongodb-sharded/',
+        client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
                                      username=MONGO_USER,
                                      password=MONGO_PASS,
                                      authSource='admin',
