@@ -29,16 +29,114 @@ class Service:
         self.design_id = input.design_id
         self.step = "name2taxid"
         self.status = "running"
-        #self.query_key = input.query.keys()[0]
-        #self.query_value = input.query.values()[0]
+        self.query_type = None
+        self.__col = self.__get_database_connection()
 
     def get_status_update(self):
         return {"design_id": self.design_id, "step": self.step, "status": self.status}
 
+    def _process_initial_query(self, input):
+        """
+        takes either:
+            --> a custom query
+            --> a specie query
+            --> an SPP query
+        :returns
+            --> the custom query in searchable form {key: [value]}
+            --> the specie query in searchable form {'name': input.name}
+            --> the SPP query in searchable regex form {'name': bson.regex}
+        """
+        if input.name is None:
+            self.query_type = 'custom'
+            return {list(input.query.keys())[0]: list(input.query.values())}
+
+        elif 'SPP' in input.name:
+            query = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
+            self.query_type = 'SPP'
+            return {'name': query}
+
+        elif input.name is not None:
+            self.query_type = 'single_specie'
+            return {'name': input.name}
+
+    @staticmethod
+    def __get_database_connection():
+        client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
+                                     username=MONGO_USER,
+                                     password=MONGO_PASS,
+                                     authSource='admin',
+                                     authMechanism='SCRAM-SHA-256')
+        db = client.sequencemetadata
+        col = db.accessions
+        return col
+
+    def _search_initial_query(self, query):
+        result = col.find_one(query)
+        print(result)
+        if result is None:
+            print("no results found")
+            self.status = f'failed - {input.name} not found'
+            return None
+
+    def _get_taxids_from_lineage(self, result):
+
+        if self.query_type == 'single_specie':
+            taxid = result['taxid']
+
+        elif self.query_type == 'SPP':
+            taxid = result['genus_taxid']
+
+        post_item = {'design_id': self.design_id,
+                     'taxid': taxid,
+                     'pathway': input.pathway}
+
+        response = requests.post("http://lineageservice-service/run/", json=post_item)
+        #todo: if return code is not 200, set status to message?
+
+        self.taxids = response.json()['taxids']
+        self.taxids.append(taxid)
+        self.family_taxid = result['family_taxid']
+        self.genus_taxid = result['genus_taxid']
+
+    def _process_second_query(self, input):
+        """
+        takes either:
+            --> a custom query
+            --> a specie query
+            --> an SPP query
+        :returns
+            --> the custom query in searchable form {key: [value]}
+            --> the specie query in searchable form {'name': input.name}
+            --> the SPP query in searchable regex form {'name': bson.regex}
+        """
+        if self.query_type == 'custom':
+            return {list(input.query.keys())[0]: list(input.query.values())}
+
+        elif self.query_type in ['SPP', 'single_specie']:
+            return {'taxid': self.taxids}
+
+    def _search_second_query(self, query):
+        data_dict = {}
+        for result in col.find(query):
+            if result['taxid'] not in data_dict.keys():
+                data_dict[result['taxid']] = []
+            data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+        return data_dict
 
     def get_query(self, input):
+        """
+        this service can take a few different types of query:
+        --> Genus + specie type query
+        --> Genus + SPP type query
+        --> custom query
+        this returns a search query that searches for an appropriate taxid for the first 2 query types
+        or just the input custom search query for the third type of query
+
+        IT ALSO SETS SOME CLASS VARIABLES like self.taxids, self.family_taxid and self.genus_taxid
+        """
         if input.name is None:
             print(input.query)
+            print('custom query')
             return list(input.query.keys())[0], list(input.query.values())
 
         client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
@@ -59,6 +157,7 @@ class Service:
         print(result)
         if result is None:
             print("no results found")
+            self.status = f'failed - {input.name} not found'
             return None
         print(result)
         self.family_taxid = result['family_taxid']
@@ -87,8 +186,12 @@ class Service:
         do search against mongodb
 
         """
-        query_key, query_value = self.get_query(input)
-        print(query_key, query_value)
+        try:
+            query_key, query_value = self.get_query(input)
+            print(query_key, query_value)
+        except:
+            return None
+
 
         ##Create a MongoDB client
 
