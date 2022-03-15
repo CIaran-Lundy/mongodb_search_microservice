@@ -1,6 +1,6 @@
 from subprocess import check_output, Popen, PIPE
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 import requests
 import sys
 import pymongo
@@ -32,32 +32,8 @@ class Service:
         self.query_type = None
         self.__col = self.__get_database_connection()
 
-    def get_status_update(self):
+    def get_status_update(self) -> dict:
         return {"design_id": self.design_id, "step": self.step, "status": self.status}
-
-    def _process_initial_query(self, input):
-        """
-        takes either:
-            --> a custom query
-            --> a specie query
-            --> an SPP query
-        :returns
-            --> the custom query in searchable form {key: [value]}
-            --> the specie query in searchable form {'name': input.name}
-            --> the SPP query in searchable regex form {'name': bson.regex}
-        """
-        if input.name is None:
-            self.query_type = 'custom'
-            return {list(input.query.keys())[0]: list(input.query.values())}
-
-        elif 'SPP' in input.name:
-            query = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
-            self.query_type = 'SPP'
-            return {'name': query}
-
-        elif input.name is not None:
-            self.query_type = 'single_specie'
-            return {'name': input.name}
 
     @staticmethod
     def __get_database_connection():
@@ -70,35 +46,89 @@ class Service:
         col = db.accessions
         return col
 
-    def _search_initial_query(self, query):
-        result = col.find_one(query)
-        print(result)
-        if result is None:
-            print("no results found")
-            self.status = f'failed - {input.name} not found'
+    def _process_initial_query(self, input: Input) -> dict:
+        """
+        takes either:
+            --> a custom query
+            --> a specie query
+            --> an SPP query
+        :returns
+            --> the custom query in searchable form {key: [value]}
+            --> the specie query in searchable form {'name': input.name}
+            --> the SPP query in searchable regex form {'name': bson.regex}
+        """
+        if input.name is None:
+            self.query_type = 'custom'
+            if input.query is not None:
+                return {list(input.query.keys())[0]: list(input.query.values())}
+
+        elif 'SPP' in input.name:
+            query = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
+            self.query_type = 'SPP'
+            return {'name': query}
+
+        elif input.name is not None:
+            self.query_type = 'single_specie'
+            return {'name': input.name}
+
+        else:
+            self.status = 'failed - query was not valid'
             return None
 
-    def _get_taxids_from_lineage(self, result):
+    def _search_initial_query(self, query: dict) -> Union[dict, None]:
+        """
+        takes:
+            --> a searchable query
+        returns:
+            --> search result
+                OR
+            --> None and a status update
+        """
+        result = self.__col.find_one(query)
+        if result is None:
+            self.status = f'failed - {query} not found'
+            return None
+        return result
 
+    def _get_taxids_from_lineage(self, result: dict):
+        """
+        takes:
+            --> search result
+        returns
+            --> nothing. (for single_specie or SPP)
+                but sets a some instance variables:
+                --> taxids
+                --> family_taxid
+                --> genus_taxid
+                OR
+                --> None (for custom search)
+        """
         if self.query_type == 'single_specie':
             taxid = result['taxid']
 
         elif self.query_type == 'SPP':
             taxid = result['genus_taxid']
 
+        else:
+            return None
+
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
-                     'pathway': input.pathway}
+                     'pathway': 'pathway'}
 
         response = requests.post("http://lineageservice-service/run/", json=post_item)
-        #todo: if return code is not 200, set status to message?
+        # todo: if return code is not 200, set status to message?
+        if response.status_code is not 200:
+            self.status = f'failed - got {response.status_code} from lineageservice'
+            return None
 
         self.taxids = response.json()['taxids']
         self.taxids.append(taxid)
         self.family_taxid = result['family_taxid']
         self.genus_taxid = result['genus_taxid']
+        return self.taxids, self.family_taxid, self.genus_taxid
 
-    def _process_second_query(self, input):
+    def _process_second_query(self, input: Input) -> dict:
         """
         takes either:
             --> a custom query
@@ -112,16 +142,62 @@ class Service:
         if self.query_type == 'custom':
             return {list(input.query.keys())[0]: list(input.query.values())}
 
-        elif self.query_type in ['SPP', 'single_specie']:
-            return {'taxid': self.taxids}
+        elif self.query_type in ('SPP', 'single_specie'):
+            return {'taxid': {"$in": self.taxids}}
 
     def _search_second_query(self, query):
         data_dict = {}
-        for result in col.find(query):
+        for result in self.__col.find(query):
             if result['taxid'] not in data_dict.keys():
                 data_dict[result['taxid']] = []
             data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
         return data_dict
+
+    def run2(self, input: Input) -> dict:
+
+        initial_query = self._process_initial_query(input)
+
+        if initial_query is None:
+            return None
+
+        initial_search_result = self._search_initial_query(initial_query)
+
+        if initial_search_result is None:
+            return None
+
+        if self.query_type in ('SPP', 'single_specie'):
+            taxids = self._get_taxids_from_lineage(initial_search_result)
+            if taxids is None:
+                return None
+
+        second_query = self._search_second_query(input)
+
+        if second_query is None:
+            return None
+
+        second_search_result = self._search_second_query(second_query)
+
+        if second_search_result is None:
+            return None
+
+        if input.name is not None:
+            output = {"design_id": self.design_id,
+                    'data': [data_dict],
+                    'metadata': {'taxid': self.taxids,
+                                 'family_taxid': [self.family_taxid],
+                                 'genus_taxid': [self.genus_taxid],
+                                 },
+                    'pathway': input.pathway[1:]}
+
+            print(output)
+            return output
+
+        else:
+            output = {"design_id": self.design_id,
+                      'data': [data_dict],
+                      'pathway': input.pathway[1:]}
+            print(output)
+            return output
 
     def get_query(self, input):
         """
@@ -184,7 +260,6 @@ class Service:
     def run(self, input):
         """
         do search against mongodb
-
         """
         try:
             query_key, query_value = self.get_query(input)
@@ -263,5 +338,3 @@ if __name__ == "__main__":
     service = Service(input)
     output = service.run(input)
     print(output)
-
-
