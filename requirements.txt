@@ -4,3 +4,4 @@ mock
 mongomock
 requests
 bson
+pydantic
