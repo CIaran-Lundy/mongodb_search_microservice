@@ -1,4 +1,3 @@
-import zlib
 import sys
 from subprocess import check_output, Popen, PIPE
 from pydantic import BaseModel
