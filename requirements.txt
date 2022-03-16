@@ -1,0 +1,6 @@
+pymongo
+pytest
+mock
+mongomock
+requests
+bson
