@@ -60,7 +60,12 @@ class Service:
         if input.name is None:
             self.query_type = 'custom'
             if input.query is not None:
-                return {list(input.query.keys())[0]: list(input.query.values())}
+                return input.query
+                #return {list(input.query.keys())[0]: list(input.query.values())}
+
+            else:
+                self.status = 'failed - query was not valid'
+                return None
 
         elif 'SPP' in input.name:
             query = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
@@ -140,7 +145,8 @@ class Service:
             --> the SPP query in searchable regex form {'name': bson.regex}
         """
         if self.query_type == 'custom':
-            return {list(input.query.keys())[0]: list(input.query.values())}
+            return input.query
+            #return {list(input.query.keys())[0]: list(input.query.values())}
 
         elif self.query_type in ('SPP', 'single_specie'):
             return {'taxid': {"$in": self.taxids}}
@@ -153,36 +159,37 @@ class Service:
             data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
         return data_dict
 
-    def run2(self, input: Input) -> dict:
+    def run(self, input: Input) -> dict:
 
         initial_query = self._process_initial_query(input)
-
+        print(f'initial_query: {initial_query}')
         if initial_query is None:
             return None
 
         initial_search_result = self._search_initial_query(initial_query)
-
+        print(f'initial_search_result: {initial_search_result}')
         if initial_search_result is None:
             return None
 
         if self.query_type in ('SPP', 'single_specie'):
             taxids = self._get_taxids_from_lineage(initial_search_result)
+            print(f'taxids: {taxids}')
             if taxids is None:
                 return None
 
-        second_query = self._search_second_query(input)
-
+        second_query = self._process_second_query(input)
+        print(f'second_query: {second_query}')
         if second_query is None:
             return None
 
         second_search_result = self._search_second_query(second_query)
-
+        print(f'second_search_result: {second_search_result}')
         if second_search_result is None:
             return None
 
         if input.name is not None:
             output = {"design_id": self.design_id,
-                    'data': [data_dict],
+                    'data': [second_search_result],
                     'metadata': {'taxid': self.taxids,
                                  'family_taxid': [self.family_taxid],
                                  'genus_taxid': [self.genus_taxid],
@@ -194,124 +201,124 @@ class Service:
 
         else:
             output = {"design_id": self.design_id,
-                      'data': [data_dict],
+                      'data': [second_search_result],
                       'pathway': input.pathway[1:]}
             print(output)
             return output
 
-    def get_query(self, input):
-        """
-        this service can take a few different types of query:
-        --> Genus + specie type query
-        --> Genus + SPP type query
-        --> custom query
-        this returns a search query that searches for an appropriate taxid for the first 2 query types
-        or just the input custom search query for the third type of query
+    #def get_query(self, input):
+    #    """
+    #    this service can take a few different types of query:
+    #    --> Genus + specie type query
+    #    --> Genus + SPP type query
+    #    --> custom query
+    #    this returns a search query that searches for an appropriate taxid for the first 2 query types
+    #    or just the input custom search query for the third type of query
 
-        IT ALSO SETS SOME CLASS VARIABLES like self.taxids, self.family_taxid and self.genus_taxid
-        """
-        if input.name is None:
-            print(input.query)
-            print('custom query')
-            return list(input.query.keys())[0], list(input.query.values())
+    #    IT ALSO SETS SOME CLASS VARIABLES like self.taxids, self.family_taxid and self.genus_taxid
+    #    """
+    #    if input.name is None:
+    #        print(input.query)
+    #        print('custom query')
+    #        return list(input.query.keys())[0], list(input.query.values())#
 
-        client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
-                                     username=MONGO_USER,
-                                     password=MONGO_PASS,
-                                     authSource='admin',
-                                     authMechanism='SCRAM-SHA-256')
-        db = client.sequencemetadata
-        col = db.accessions
-
-        print(input.name)
-        self.SPP = False
-        if 'SPP' in input.name:
-            input.name = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
-            print(input.name)
-            self.SPP = True
-        result = col.find_one({'name': input.name})
-        print(result)
-        if result is None:
-            print("no results found")
-            self.status = f'failed - {input.name} not found'
-            return None
-        print(result)
-        self.family_taxid = result['family_taxid']
-        self.genus_taxid = result['genus_taxid']
-        taxid = result['taxid']
-        
-        if self.SPP:
-            taxid = self.genus_taxid
-
-        post_item = {'design_id': self.design_id,
-                     'taxid': taxid,
-                     'pathway': input.pathway}
-
-        response = requests.post("http://lineageservice-service/run/", json=post_item)
-        self.taxids = response.json()['taxids']
-        self.taxids.append(taxid)
-
-        print("got taxids")
-
-        client.close()
-
-        return 'taxid', self.taxids
-
-    def run(self, input):
-        """
-        do search against mongodb
-        """
-        try:
-            query_key, query_value = self.get_query(input)
-            print(query_key, query_value)
-        except:
-            return None
-
-
-        ##Create a MongoDB client
-
-        client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
-                                     username=MONGO_USER,
-                                     password=MONGO_PASS,
-                                     authSource='admin',
-                                     authMechanism='SCRAM-SHA-256')
-        db = client.sequencemetadata
-        col = db.accessions
-
-        data_dict = {}
-        for result in col.find({query_key: {"$in": query_value}}):
-            if result['taxid'] not in data_dict.keys():
-                data_dict[result['taxid']] = []
-            data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
-
-        client.close()
-
-        self.status = "done"
-
-        if input.name is not None:
-            print({"design_id": self.design_id,
-                    'data': [data_dict],
-                    'metadata': {'taxid': self.taxids,
-                                 'family_taxid': [self.family_taxid],
-                                 'genus_taxid': [self.genus_taxid],
-                                 },
-                    'pathway': input.pathway[1:]})
-            return {"design_id": self.design_id,
-                    'data': [data_dict],
-                    'metadata': {'taxid': self.taxids,
-                                 'family_taxid': [self.family_taxid],
-                                 'genus_taxid': [self.genus_taxid],
-                                 },
-                    'pathway': input.pathway[1:]}
-        else:
-            print({"design_id": self.design_id,
-                    'data': [data_dict],
-                    #'metadata': input.metadata,
-                    'pathway': input.pathway[1:]})
-            return {"design_id": self.design_id,
-                    'data': [data_dict],
-                    #'metadata': input.metadata,
-                    'pathway': input.pathway[1:]}
+    #    client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
+    #                                 username=MONGO_USER,
+    #                                 password=MONGO_PASS,
+    #                                 authSource='admin',
+    #                                 authMechanism='SCRAM-SHA-256')
+    #    db = client.sequencemetadata
+    #     col = db.accessions
+    #
+    #     print(input.name)
+    #     self.SPP = False
+    #     if 'SPP' in input.name:
+    #         input.name = bson.regex.Regex("^" + str(input.name).split(" ")[0] + " ")
+    #         print(input.name)
+    #         self.SPP = True
+    #     result = col.find_one({'name': input.name})
+    #     print(result)
+    #     if result is None:
+    #         print("no results found")
+    #         self.status = f'failed - {input.name} not found'
+    #         return None
+    #     print(result)
+    #     self.family_taxid = result['family_taxid']
+    #     self.genus_taxid = result['genus_taxid']
+    #     taxid = result['taxid']
+    #
+    #     if self.SPP:
+    #         taxid = self.genus_taxid
+    #
+    #     post_item = {'design_id': self.design_id,
+    #                  'taxid': taxid,
+    #                  'pathway': input.pathway}
+    #
+    #     response = requests.post("http://lineageservice-service/run/", json=post_item)
+    #     self.taxids = response.json()['taxids']
+    #     self.taxids.append(taxid)
+    #
+    #     print("got taxids")
+    #
+    #     client.close()
+    #
+    #     return 'taxid', self.taxids
+    #
+    # def run(self, input):
+    #     """
+    #     do search against mongodb
+    #     """
+    #     try:
+    #         query_key, query_value = self.get_query(input)
+    #         print(query_key, query_value)
+    #     except:
+    #         return None
+    #
+    #
+    #     ##Create a MongoDB client
+    #
+    #     client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
+    #                                  username=MONGO_USER,
+    #                                  password=MONGO_PASS,
+    #                                  authSource='admin',
+    #                                  authMechanism='SCRAM-SHA-256')
+    #     db = client.sequencemetadata
+    #     col = db.accessions
+    #
+    #     data_dict = {}
+    #     for result in col.find({query_key: {"$in": query_value}}):
+    #         if result['taxid'] not in data_dict.keys():
+    #             data_dict[result['taxid']] = []
+    #         data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+    #
+    #     client.close()
+    #
+    #     self.status = "done"
+    #
+    #     if input.name is not None:
+    #         print({"design_id": self.design_id,
+    #                 'data': [data_dict],
+    #                 'metadata': {'taxid': self.taxids,
+    #                              'family_taxid': [self.family_taxid],
+    #                              'genus_taxid': [self.genus_taxid],
+    #                              },
+    #                 'pathway': input.pathway[1:]})
+    #         return {"design_id": self.design_id,
+    #                 'data': [data_dict],
+    #                 'metadata': {'taxid': self.taxids,
+    #                              'family_taxid': [self.family_taxid],
+    #                              'genus_taxid': [self.genus_taxid],
+    #                              },
+    #                 'pathway': input.pathway[1:]}
+    #     else:
+    #         print({"design_id": self.design_id,
+    #                 'data': [data_dict],
+    #                 #'metadata': input.metadata,
+    #                 'pathway': input.pathway[1:]})
+    #         return {"design_id": self.design_id,
+    #                 'data': [data_dict],
+    #                 #'metadata': input.metadata,
+    #                 'pathway': input.pathway[1:]}
 
 
 if __name__ == "__main__":
