@@ -25,12 +25,29 @@ class MyInput(BaseModel):
     pathway: list = ['this_service', 'next_service']
 
 
-dummy_database_entry = {'accession_id': 'accession345.1',
+dummy_database_entries = [{'accession_id': 'accession345.1',
                           'start_byte': '12345678',
                           'taxid': '12345',
                           'name': 'test specie',
                           'genus_taxid': '2345',
-                          'family_taxid': '345'}
+                          'family_taxid': '345'},
+                          {'accession_id': 'accession789.1',
+                           'start_byte': '789',
+                           'taxid': '56789',
+                           'name': 'test specie2',
+                           'family_taxid': '789'},
+                          {'accession_id': 'accession789.1',
+                           'start_byte': '789',
+                           'taxid': '5678',
+                           'name': 'test specie3',
+                           'genus_taxid': '6789'},
+                          {'accession_id': 'accession789.1',
+                           'start_byte': '789',
+                           'taxid': '5678',
+                           'name': 'test specie4',
+                           'genus_taxid': '6789',
+                           'family_taxid': '789'},
+                          ]
 
 
 dummy_result = {"design_id": "Prototheca-SPP.0.5.5.0.0.0.0.959.0",
@@ -50,7 +67,8 @@ class MyMongoClient:
             pass
 
         accessions = mongomock.MongoClient().db.collection
-        accessions.insert_one(dummy_database_entry)
+        for dummy_database_entry in dummy_database_entries:
+            accessions.insert_one(dummy_database_entry)
 
     def close(self):
         pass
@@ -93,9 +111,9 @@ def test_process_initial_query(input_attr_to_test, input_value, exp_result, exp_
 @mock.patch.object(requests, 'post', mocked_requests_get_for_external_api)
 @mock.patch.object(pymongo, 'MongoClient', MyMongoClient)
 @pytest.mark.parametrize("query, exp_result, exp_status", [
-    ({'family_taxid': '345'}, dummy_database_entry, "running"),
-    ({'name': Regex('^test ', 0)}, dummy_database_entry, 'running'),
-    ({'name': "test specie"}, dummy_database_entry, 'running'),
+    ({'family_taxid': '345'}, dummy_database_entries[0], "running"),
+    ({'name': Regex('^test ', 0)}, dummy_database_entries[0], 'running'),
+    ({'name': "test specie"}, dummy_database_entries[0], 'running'),
     ({'name': "nope"}, None, "failed - {'name': 'nope'} not found"),
     ({'family_taxid': '3'}, None, "failed - {'family_taxid': '3'} not found"),
     ({'name': Regex('^wrong ', 0)}, None, "failed - {'name': Regex('^wrong ', 0)} not found"),
@@ -108,19 +126,20 @@ def test_search_initial_query(query, exp_result, exp_status):
 
 
 @mock.patch.object(requests, 'post', mocked_requests_get_for_external_api)
-@pytest.mark.parametrize("query_type, input_value, exp_taxids, exp_genus_taxid, exp_family_taxid", [
-    ('single_specie', dummy_database_entry, ['12345'], '2345', '345'),
-    ('SPP', dummy_database_entry, ['12345', '2345'], '2345', '345'),
-    ('custom', dummy_database_entry, None, None, None),
+@pytest.mark.parametrize("query_type, search_result, exp_taxids, exp_genus_taxid, exp_family_taxid", [
+    ('single_specie', dummy_database_entries[0], ['12345'], '2345', '345'),
+    ('SPP', dummy_database_entries[0], ['12345', '2345'], '2345', '345'),
+    ('custom', dummy_database_entries[0], None, None, None),
+    ('single_specie', dummy_database_entries[1], ['56789'], None, '789'),
   ])
-def test_get_taxids_from_lineage(query_type, input_value, exp_taxids, exp_genus_taxid, exp_family_taxid):
+def test_get_taxids_from_lineage(query_type, search_result, exp_taxids, exp_genus_taxid, exp_family_taxid):
     input = MyInput()
     service = Service(input)
     setattr(service, 'taxids', None)
     setattr(service, 'genus_taxid', None)
     setattr(service, 'family_taxid', None)
     setattr(service, "query_type", query_type)
-    service._get_taxids_from_lineage(input_value)
+    service._get_taxids_from_lineage(search_result)
     assert service.taxids == exp_taxids
     assert service.genus_taxid == exp_genus_taxid
     assert service.family_taxid == exp_family_taxid

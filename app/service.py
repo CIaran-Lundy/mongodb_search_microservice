@@ -126,11 +126,27 @@ class Service:
         if response.status_code is not 200:
             self.status = f'failed - got {response.status_code} from lineageservice'
             return None
+        try:
+            self.taxids = response.json()['taxids']
 
-        self.taxids = response.json()['taxids']
+        except KeyError:
+            self.status = f'failed - lineageservice returned no taxids'
+            return None
+
         self.taxids.append(taxid)
-        self.family_taxid = result['family_taxid']
-        self.genus_taxid = result['genus_taxid']
+
+        try:
+            self.family_taxid = result['family_taxid']
+
+        except KeyError:
+            self.family_taxid = None
+
+        try:
+            self.genus_taxid = result['genus_taxid']
+
+        except KeyError:
+            self.genus_taxid = None
+
         return self.taxids, self.family_taxid, self.genus_taxid
 
     def _process_second_query(self, input: Input) -> dict:
