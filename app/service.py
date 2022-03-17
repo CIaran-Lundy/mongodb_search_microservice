@@ -219,6 +219,7 @@ class Service:
                     'pathway': input.pathway[1:]}
 
             print(output)
+            self.status = 'done'
             return output
 
         else:
@@ -226,6 +227,7 @@ class Service:
                       'data': [second_search_result],
                       'pathway': input.pathway[1:]}
             print(output)
+            self.status = 'done'
             return output
 
     #def get_query(self, input):
