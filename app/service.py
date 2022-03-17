@@ -119,7 +119,7 @@ class Service:
 
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
-                     'pathway': 'pathway'}
+                     'pathway': ['pathway', 'pathway']}
 
         response = requests.post("http://lineageservice-service/run/", json=post_item)
         # todo: if return code is not 200, set status to message?
