@@ -200,6 +200,7 @@ def test_run2(input_attr_to_test, input_value, exp_result, exp_query_type, statu
     service = Service(input)
     assert service.run(input) == exp_result
     assert service.query_type == exp_query_type
+    assert service.status == status
 
 
 #@mock.patch.object(requests, 'post', mocked_requests_get_for_external_api)
