@@ -178,6 +178,7 @@ class Service:
     def run(self, input: Input) -> dict:
 
         initial_query = self._process_initial_query(input)
+        print(f'query_type: {self.query_type}')
         print(f'initial_query: {initial_query}')
         if initial_query is None:
             print(self.status)
