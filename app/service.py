@@ -147,7 +147,7 @@ class Service:
         except KeyError:
             self.genus_taxid = None
 
-        return self.taxids, self.family_taxid, self.genus_taxid
+        return self.taxids
 
     def _process_second_query(self, input: Input) -> dict:
         """
@@ -180,27 +180,32 @@ class Service:
         initial_query = self._process_initial_query(input)
         print(f'initial_query: {initial_query}')
         if initial_query is None:
+            print(self.status)
             return None
 
         initial_search_result = self._search_initial_query(initial_query)
         print(f'initial_search_result: {initial_search_result}')
         if initial_search_result is None:
+            print(self.status)
             return None
 
         if self.query_type in ('SPP', 'single_specie'):
             taxids = self._get_taxids_from_lineage(initial_search_result)
             print(f'taxids: {taxids}')
             if taxids is None:
+                print(self.status)
                 return None
 
         second_query = self._process_second_query(input)
         print(f'second_query: {second_query}')
         if second_query is None:
+            print(self.status)
             return None
 
         second_search_result = self._search_second_query(second_query)
         print(f'second_search_result: {second_search_result}')
         if second_search_result is None:
+            print(self.status)
             return None
 
         if input.name is not None:
