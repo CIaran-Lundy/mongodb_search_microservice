@@ -79,7 +79,7 @@ class Service:
         """
         try:
             if 'SPP' in name:
-                query = bson.regex.Regex("^" + str(name).split(" ")[0] + " ")
+                query = bson.regex.Regex("^" + str(name).split("SPP")[0].strip(' ') + " ")
                 self.query_type = 'SPP'
                 return {'name': query}
 
@@ -131,6 +131,7 @@ class Service:
 
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
+                     'genus_taxid': result['genus_taxid'],
                      'pathway': ['pathway', 'pathway']}
 
         response = requests.post("http://lineageservice-service/run/", json=post_item)
@@ -147,7 +148,7 @@ class Service:
             self.message = 'lineageservice returned no taxids'
             return None
 
-        self.taxids.append(taxid)
+        #self.taxids.append(taxid)
         self.taxids.extend(taxids)
 
         try:
@@ -167,9 +168,10 @@ class Service:
     def _search_second_query(self, query):
         data_dict = {}
         for result in self.__col.find(query):
-            if result['taxid'] not in data_dict.keys():
-                data_dict[result['taxid']] = []
-            data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+            if all(key in result.keys() for key in ['accession_id', 'start_byte']):
+                if result['taxid'] not in data_dict.keys():
+                    data_dict[result['taxid']] = []
+                data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
         return data_dict
 
     def _create_query_from_names(self, input: Input) -> Union[dict, None]:
@@ -196,7 +198,7 @@ class Service:
                     print(self.status)
                     return None
 
-        return {'taxid': {"$in": self.taxids}}
+        return {'taxid': {"$in": self.taxids[0] + self.taxids[1]}}
 
     def run(self, input: Input) -> dict:
 
@@ -217,7 +219,7 @@ class Service:
         #if second_query is None:
         #    print(self.status)
         #    return None
-
+        print(f'second_search_query: {input.query}')
         second_search_result = self._search_second_query(input.query)
         print(f'second_search_result: {second_search_result}')
         if second_search_result is None:
