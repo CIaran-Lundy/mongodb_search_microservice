@@ -1,4 +1,4 @@
-FROM youseq/servicebaseimage:latest
+FROM youseq/servicebaseimage:v1.0.0
 
 COPY ./app /app
 
