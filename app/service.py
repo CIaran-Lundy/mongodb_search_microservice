@@ -50,7 +50,7 @@ class Service:
         self.message = None
         self.query_type = None
         self.__col = self.__get_database_connection()
-        self.taxids = []
+        self.taxids = [[], [], []]
 
     def get_status_update(self) -> dict:
         return {"design_id": self.design_id, "step": self.step, "status": self.status, "message": self.message}
@@ -149,7 +149,8 @@ class Service:
             return None
 
         #self.taxids.append(taxid)
-        self.taxids.extend(taxids)
+        for i in range(0,2):
+            self.taxids[i].extend(taxids[i])
 
         try:
             self.family_taxid = result['family_taxid']
