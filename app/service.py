@@ -44,13 +44,13 @@ class Service:
     stores the status in status
     """
     def __init__(self, input):
-        self.design_id = input.design_id
-        self.step = "name2taxid"
+        self.design_id = input['design_id']
+        self.step = "datafinder"
         self.status = "running"
         self.message = None
         self.query_type = None
         self.__col = self.__get_database_connection()
-        self.taxids = []
+        self.taxids = [[], [], []]
 
     def get_status_update(self) -> dict:
         return {"design_id": self.design_id, "step": self.step, "status": self.status, "message": self.message}
@@ -79,7 +79,7 @@ class Service:
         """
         try:
             if 'SPP' in name:
-                query = bson.regex.Regex("^" + str(name).split(" ")[0] + " ")
+                query = bson.regex.Regex("^" + str(name).split("SPP")[0].strip(' ') + " ")
                 self.query_type = 'SPP'
                 return {'name': query}
 
@@ -131,6 +131,7 @@ class Service:
 
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
+                     'genus_taxid': result['genus_taxid'],
                      'pathway': ['pathway', 'pathway']}
 
         response = requests.post("http://lineageservice-service/run/", json=post_item)
@@ -147,8 +148,9 @@ class Service:
             self.message = 'lineageservice returned no taxids'
             return None
 
-        self.taxids.append(taxid)
-        self.taxids.extend(taxids)
+        #self.taxids.append(taxid)
+        for i in range(0,2):
+            self.taxids[i].extend(taxids[i])
 
         try:
             self.family_taxid = result['family_taxid']
@@ -167,14 +169,15 @@ class Service:
     def _search_second_query(self, query):
         data_dict = {}
         for result in self.__col.find(query):
-            if result['taxid'] not in data_dict.keys():
-                data_dict[result['taxid']] = []
-            data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+            if all(key in result.keys() for key in ['accession_id', 'start_byte']):
+                if result['taxid'] not in data_dict.keys():
+                    data_dict[result['taxid']] = []
+                data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
         return data_dict
 
     def _create_query_from_names(self, input: Input) -> Union[dict, None]:
 
-        for name in input.names:
+        for name in input['names']:
             initial_query = self._process_initial_query(name)
             print(f'query_type: {self.query_type}')
             print(f'initial_query: {initial_query}')
@@ -196,20 +199,20 @@ class Service:
                     print(self.status)
                     return None
 
-        return {'taxid': {"$in": self.taxids}}
+        return {'taxid': {"$in": self.taxids[0] + self.taxids[1]}}
 
-    def run(self, input: Input) -> dict:
+    def run(self, input) -> dict:
 
-        if input.names is None:
+        if input['names'] is None:
             self.query_type = 'custom'
-            if input.query is None:
+            if input['query'] is None:
                 self.status = 'failed'
                 self.message = 'query was not valid'
                 return None
 
         else:
-            input.query = self._create_query_from_names(input)
-            if input.query is None:
+            input['query'] = self._create_query_from_names(input)
+            if input['query'] is None:
                 return None
 
         #second_query = self._process_second_query(input.query)
@@ -217,33 +220,29 @@ class Service:
         #if second_query is None:
         #    print(self.status)
         #    return None
-
-        second_search_result = self._search_second_query(input.query)
+        print(f'second_search_query: {input["query"]}')
+        second_search_result = self._search_second_query(input['query'])
         print(f'second_search_result: {second_search_result}')
         if second_search_result is None:
             print(self.status)
             return None
 
-        if input.names is not None:
+        if input['names'] is not None:
             output = {"design_id": self.design_id,
                     'data': [second_search_result],
                     'metadata': {'taxid': self.taxids,
                                  'family_taxid': [self.family_taxid],
                                  'genus_taxid': [self.genus_taxid],
                                  },
-                    'pathway': input.pathway[1:]}
-
-            print(output)
-            self.status = 'done'
-            return output
+                    'pathway': input['pathway'][1:]}
 
         else:
             output = {"design_id": self.design_id,
                       'data': [second_search_result],
-                      'pathway': input.pathway[1:]}
-            print(output)
-            self.status = 'done'
-            return output
+                      'pathway': input['pathway'][1:]}
+        print(output)
+        self.status = 'done'
+        return [output]
 
     #def get_query(self, input):
     #    """
