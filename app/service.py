@@ -16,6 +16,8 @@ class Input(BaseModel):
     design_id: str
     names: Optional[list] = None
     query: Optional[Dict[str, str]] = None
+    database: Optional[str] = "sequencemetadata"
+    collection: Optional[str] = "accessions"
     metadata: Optional[Dict[str, list]] = None
     pathway: list
 
@@ -34,7 +36,6 @@ def custom_run_decorator(run):
                 self.message = 'query was not valid'
                 return None
 
-
     return _impl
 
 
@@ -45,6 +46,8 @@ class Service:
     """
     def __init__(self, input):
         self.design_id = input['design_id']
+        self.database = input['database']
+        self.collection = input['collection']
         self.step = "datafinder"
         self.status = "running"
         self.message = None
@@ -55,15 +58,16 @@ class Service:
     def get_status_update(self) -> dict:
         return {"design_id": self.design_id, "step": self.step, "status": self.status, "message": self.message}
 
-    @staticmethod
-    def __get_database_connection():
+    def __get_database_connection(self):
         client = pymongo.MongoClient('mongodb://mongo-nodeport-svc/',
                                      username=MONGO_USER,
                                      password=MONGO_PASS,
                                      authSource='admin',
                                      authMechanism='SCRAM-SHA-256')
-        db = client.sequencemetadata
+        #db = eval(f'{client}.{self.database}')
+        db = client.refseq
         col = db.accessions
+        #col = eval(f'{db}.{self.collection}')
         return col
 
     def _process_initial_query(self, name) -> dict:
@@ -129,6 +133,8 @@ class Service:
         else:
             return None
 
+        self.taxids[0].append(taxid)
+
         post_item = {'design_id': self.design_id,
                      'taxid': taxid,
                      'genus_taxid': result['genus_taxid'],
@@ -148,7 +154,6 @@ class Service:
             self.message = 'lineageservice returned no taxids'
             return None
 
-        #self.taxids.append(taxid)
         for i in range(0,2):
             self.taxids[i].extend(taxids[i])
 
@@ -168,11 +173,15 @@ class Service:
 
     def _search_second_query(self, query):
         data_dict = {}
+        i = 0
         for result in self.__col.find(query):
-            if all(key in result.keys() for key in ['accession_id', 'start_byte']):
-                if result['taxid'] not in data_dict.keys():
-                    data_dict[result['taxid']] = []
-                data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+            if self.query_type != 'custom':
+                if all(key in result.keys() for key in ['accession_id', 'start_byte']):
+                    if result['taxid'] not in data_dict.keys():
+                        data_dict[result['taxid']] = []
+                    data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
+            else:
+                data_dict[i] = result
         return data_dict
 
     def _create_query_from_names(self, input: Input) -> Union[dict, None]:
@@ -361,25 +370,17 @@ class Service:
 
 if __name__ == "__main__":
 
-    class MyInput2(BaseModel):
-        design_id: str = "design.0.0.6.1.1.0.0.0.0.0.0.0"
-        query: Optional[Dict[str, str]] = {'family_taxid': '641'}
-        name: Optional[str] = None
-        pathway: list = ["1", "2"]
+    input = {
+            "design_id": "design.0.0.6.1.1.0.0.0.0.0.0.0",
+            "names": None,
+            "query": {'taxid': '59505'},
+            "database":  "refseq",
+            "collection": "accessions",
+            "metadata":  None,
+            "pathway": [1,2]
+            }
 
-
-    input: MyInput2 = MyInput2()
     service = Service(input)
     output = service.run(input)
     print(output)
 
-    class MyInput(BaseModel):
-        design_id: str = "design.0.0.6.1.1.0.0.0.0.0.0.0"
-        name: str = "Helicobacter pylori"
-        #name: str = "Homo sapiens"
-        pathway: list = ["1", "2"]
-
-    input: MyInput = MyInput()
-    service = Service(input)
-    output = service.run(input)
-    print(output)
