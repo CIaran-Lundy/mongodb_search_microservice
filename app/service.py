@@ -182,6 +182,7 @@ class Service:
                     data_dict[result['taxid']].append((result['accession_id'], result['start_byte']))
             else:
                 data_dict[i] = result
+                i += 1
         return data_dict
 
     def _create_query_from_names(self, input: Input) -> Union[dict, None]:
@@ -373,7 +374,7 @@ if __name__ == "__main__":
     input = {
             "design_id": "design.0.0.6.1.1.0.0.0.0.0.0.0",
             "names": None,
-            "query": {'taxid': '59505'},
+            "query": {'taxid': '1352'},
             "database":  "refseq",
             "collection": "accessions",
             "metadata":  None,
